@@ -13,7 +13,7 @@
 
 | 项目 | W2 单机基线（实测环境） | W4 K3s 集群（待回填） |
 | --- | --- | --- |
-| 硬件 | VirtualBox VM，4 vCPU / 3875 Mi RAM + 1873 Mi swap | （待回填） |
+| 硬件 | VMware Workstation VM，4 vCPU / 3875 Mi RAM + 1873 Mi swap | （待回填） |
 | 宿主 OS | Ubuntu 20.04 LTS（nijika@192.168.137.10） | （待回填） |
 | 网关形态 | uvicorn 单 worker，进程直跑（`.venv/bin/uvicorn app.main:app --port 8000`） | （待回填：Deployment 副本数 / 资源 limit） |
 | 上游后端 | MockChatBackend（进程内回显，零网络） | （待回填） |
