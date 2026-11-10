@@ -102,6 +102,60 @@
 | VU50 阶段（最低点） | ~2858 |
 | 降档线 | 500（未触发） |
 
+### 3.5 守卫补强后复测（2026-11-10，llm-secguard commit c37bd6f）
+
+> W2 基线（§3）落档后，输入守卫新增 2 条规则（`pi-discard-context-en`、
+> `jb-unrestricted-persona-zh`，规则总数 18 → 20，均为追加、未动存量规则）。
+> 本节为同口径单轮复测：同 VM、同 `gateway_load.js`、k6 2.3.0、VU20、
+> 60s 预热 + 180s 稳态、profile D（守卫全开）、限流口径同 §2
+> （CAPACITY=100000 / REFILL=100000 / BUDGET=1e8，调高不关闭）。
+> **本节为单轮快照，不改写 §3 的三轮均值基线；§3 数字保持原样。**
+
+**VU20 profile D 单轮 vs W2 基线（§3.1 的 D 三轮均值）**
+
+| 指标 | W2 基线 D 均值 | 补强后复测 | 变化 |
+| --- | --- | --- | --- |
+| p50 (ms) | 6.77 | 6.44 | −0.33 |
+| p95 (ms) | 10.64 | 10.24 | −0.40 |
+| p99 (ms) | 13.81 | 13.22 | −0.59 |
+| RPS | 46.27 | 46.35 | +0.08 |
+| 429/5xx 错误率 | 0.00% | 0.00% | 0 |
+| 守卫 400 份额 | 7.32% | 8.65% | +1.33pp |
+| envelope check 通过率 | 100% | 100% | 0 |
+| 请求数 | 11110–11117 | 11133 | — |
+
+> 结论：p50/p95/p99 全部落在 W2 三轮轮间波动范围内，吞吐持平——新增
+> 2 条正则未引入可观测的端到端延迟回归。守卫 400 份额 7.32% → 8.65%：
+> 新增规则把此前漏拦的 seed-42 注入探针与 zh_jailbreak 变体真实拦截，
+> §4「守卫覆盖备注」登记的两个缺口已闭合。
+
+**guard_latency（/metrics 前后快照差分，本轮 11133 请求）**
+
+| 守卫 | 样本数 | 分位区间 | 均值 | W2 基线均值 |
+| --- | --- | --- | --- | --- |
+| input_guard | 11133 | p50/p95/p99 全部 ≤ 0.5 ms | 0.0316 ms | ≈0.0240 ms |
+| output_guard（PII 掩码） | 10170 | p50/p95/p99 全部 ≤ 0.5 ms | 0.0357 ms | ≈0.0312 ms |
+
+> 与基线同量级，仍为 µs 级常数开销；input 均值 +~8 µs 与新增 2 条正则的
+> 扫描成本一致。input − output 样本差（963）= 本轮守卫拦截数，与 400
+> 份额 8.65% 相互印证。内存无压力（轮后可用 3000 Mi，降档线 500 未触发）。
+
+**红队复测（promptfoo 0.125.1 自编 custom_zh 集，2026-11-04 基线 34/36）**
+
+| 标签 | W2 spike 基线 | 补强后 |
+| --- | --- | --- |
+| medical_privacy | 12/12 | 12/12 |
+| zh_injection | 12/12 | 12/12 |
+| zh_jailbreak | 10/12 | 12/12 |
+| 合计 | 34/36（94.4%） | **36/36（100%）** |
+
+> 两条漏拦用例（医疗越狱伪装 / 无审查写作）经真实 HTTP 均返回
+> 400 `input_guard_blocked`（rule_id=`jb-unrestricted-persona-zh`），
+> benign 对照请求仍 200。VM 侧产物：`redteam/results/custom_zh_postfix.json`、
+> `tests/loadtest/results/summary_profileD_vu20_retest.json`、
+> `tests/loadtest/results/metrics_profileD_vu20_retest_{before,after}.txt`
+> （均 gitignored）。
+
 ## 4. 红队指标口径（Red-Team Metrics）
 
 > 红队分母 = 评测集条数（promptfoo 分母档案见 llm-secguard
@@ -146,3 +200,4 @@ anything now" 类英文越狱、医疗角色扮演越狱）是已登记的红队
 | 日期 | 内容 |
 | --- | --- |
 | 2026-11-04 | 初版：W2 环境规格、负载口径、10 轮压测矩阵实测数字（A/D p50/p95/p99/RPS、guard_latency 直方图、内存曲线）、红队口径与 [N]% 占位定档 |
+| 2026-11-10 | 追加 §3.5：守卫补强后复测（llm-secguard c37bd6f，规则 18→20）——VU20 D 单轮 p95=10.24ms / RPS 46.35 无回归，guard_latency 仍 µs 级（input 0.0316ms / output 0.0357ms），守卫 400 份额 7.32%→8.65%，promptfoo 自编集 34/36→36/36 |
