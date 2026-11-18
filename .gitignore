@@ -1,0 +1,8 @@
+# Terraform local state, providers and generated plan artifacts must stay local.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+tfplan
+tfplan.txt
+tfplan.json

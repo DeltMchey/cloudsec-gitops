@@ -1,0 +1,8 @@
+# Non-sensitive examples only. Copy to terraform.tfvars for a reviewed W9 run;
+# never place credentials, secrets, account IDs, or state-backend settings here.
+aws_region          = "us-east-1"
+availability_zones  = ["us-east-1a", "us-east-1b"]
+node_instance_types = ["t3.medium"]
+node_desired_size   = 1
+node_min_size       = 1
+node_max_size       = 2
