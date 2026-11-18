@@ -1,0 +1,15 @@
+# Release layer consumed by Argo CD. The image workflow publishes a 12-character
+# commit SHA; set that exact SHA here during the execution batch. Empty/latest
+# tags are rejected by the chart's render gate, never replaced with latest.
+image:
+  tag: ""
+
+existingSecret:
+  name: llm-secguard-runtime
+
+config:
+  mockBackend: "false"
+  llmPrimaryBaseUrl: "https://api.deepseek.com/v1"
+  llmPrimaryModel: "deepseek-chat"
+  llmBackupBaseUrl: ""
+  llmBackupModel: ""

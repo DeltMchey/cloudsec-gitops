@@ -1,0 +1,131 @@
+{{- $secretName := required "existingSecret.name is required" .Values.existingSecret.name -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llm-secguard.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "llm-secguard.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "llm-secguard.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "llm-secguard.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: {{ include "llm-secguard.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            # Sensitive values are references only; this chart emits no Secret.
+            - name: LLM_PRIMARY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: LLM_PRIMARY_API_KEY
+                  optional: true
+            - name: LLM_BACKUP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: LLM_BACKUP_API_KEY
+                  optional: true
+            - name: GATEWAY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: GATEWAY_API_KEY
+                  optional: true
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: REDIS_URL
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName | quote }}
+                  key: DATABASE_URL
+            - name: MOCK_BACKEND
+              value: {{ .Values.config.mockBackend | quote }}
+            - name: LLM_PRIMARY_BASE_URL
+              value: {{ .Values.config.llmPrimaryBaseUrl | quote }}
+            - name: LLM_PRIMARY_MODEL
+              value: {{ .Values.config.llmPrimaryModel | quote }}
+            - name: LLM_BACKUP_BASE_URL
+              value: {{ .Values.config.llmBackupBaseUrl | quote }}
+            - name: LLM_BACKUP_MODEL
+              value: {{ .Values.config.llmBackupModel | quote }}
+            - name: LLM_REQUEST_TIMEOUT_SECONDS
+              value: {{ .Values.config.llmRequestTimeoutSeconds | quote }}
+            - name: BREAKER_FAILURE_THRESHOLD
+              value: {{ .Values.config.breakerFailureThreshold | quote }}
+            - name: BREAKER_COOLDOWN_SECONDS
+              value: {{ .Values.config.breakerCooldownSeconds | quote }}
+            - name: INPUT_GUARD_ENABLED
+              value: {{ .Values.config.inputGuardEnabled | quote }}
+            - name: INPUT_GUARD_CATEGORIES
+              value: {{ .Values.config.inputGuardCategories | quote }}
+            - name: OUTPUT_GUARD_ENABLED
+              value: {{ .Values.config.outputGuardEnabled | quote }}
+            - name: OUTPUT_PII_TYPES
+              value: {{ .Values.config.outputPiiTypes | quote }}
+            - name: OUTPUT_PII_WHITELIST
+              value: {{ .Values.config.outputPiiWhitelist | quote }}
+            - name: RATE_LIMIT_ENABLED
+              value: {{ .Values.config.rateLimitEnabled | quote }}
+            - name: RATE_LIMIT_CAPACITY
+              value: {{ .Values.config.rateLimitCapacity | quote }}
+            - name: RATE_LIMIT_REFILL_PER_SEC
+              value: {{ .Values.config.rateLimitRefillPerSec | quote }}
+            - name: TOKEN_BUDGET_PER_TENANT
+              value: {{ .Values.config.tokenBudgetPerTenant | quote }}
+            - name: TOKEN_ESTIMATE_DEFAULT_MAX_TOKENS
+              value: {{ .Values.config.tokenEstimateDefaultMaxTokens | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readinessInitialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.livenessInitialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

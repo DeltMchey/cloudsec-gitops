@@ -1,0 +1,81 @@
+nameOverride: ""
+fullnameOverride: ""
+replicaCount: 1
+
+image:
+  # GHCR normalizes the owner to lowercase. CI publishes a 12-character SHA.
+  repository: ghcr.io/deltmchey/llm-secguard
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# This chart never creates a Secret. Create this object out of band; the five
+# references below are key names only, never values.
+existingSecret:
+  name: llm-secguard-runtime
+
+# Every non-sensitive variable from llm-secguard/.env.example is represented.
+# Sensitive keys are exclusively secretKeyRef entries in the Deployment.
+config:
+  mockBackend: "true"
+  llmPrimaryBaseUrl: ""
+  llmPrimaryModel: ""
+  llmBackupBaseUrl: ""
+  llmBackupModel: ""
+  llmRequestTimeoutSeconds: "30"
+  breakerFailureThreshold: "5"
+  breakerCooldownSeconds: "30"
+  inputGuardEnabled: "true"
+  inputGuardCategories: "all"
+  outputGuardEnabled: "true"
+  outputPiiTypes: "all"
+  outputPiiWhitelist: ""
+  rateLimitEnabled: "true"
+  rateLimitCapacity: "20"
+  rateLimitRefillPerSec: "5"
+  tokenBudgetPerTenant: "200000"
+  tokenEstimateDefaultMaxTokens: "256"
+
+service:
+  type: NodePort
+  port: 8000
+  nodePort: 30080
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 2
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # Only these declared sources may reach container port 8000: same-namespace
+  # workloads and the private VMware NAT segment used by the NodePort demo.
+  # Extend this allowlist deliberately when W4 monitoring is introduced.
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: llm-secguard
+    - ipBlock:
+        cidr: 192.168.137.0/24
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 384Mi
+
+probes:
+  # /healthz intentionally reports degraded dependencies with HTTP 200; these
+  # probes preserve the application's current health semantics.
+  path: /healthz
+  periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
+  readinessInitialDelaySeconds: 3
+  livenessInitialDelaySeconds: 5

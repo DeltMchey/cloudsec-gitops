@@ -1,0 +1,9 @@
+# Render/lint-only values. The example tag is synthetic and is never deployed.
+image:
+  tag: "0123456789ab"
+
+existingSecret:
+  name: llm-secguard-ci-render-only
+
+config:
+  mockBackend: "true"
