@@ -1,0 +1,91 @@
+# Render-only Helm gate: no cluster and no Secret object are needed.
+name: helm
+
+on:
+  pull_request:
+    paths:
+      - "charts/llm-secguard/**"
+      - ".github/workflows/helm.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "charts/llm-secguard/**"
+      - ".github/workflows/helm.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        # TODO(pin-at-execution): pin the Helm CLI version for the execution run.
+
+      - name: Lint with strict checks
+        run: helm lint charts/llm-secguard --strict -f charts/llm-secguard/values.ci.yaml
+
+      - name: Render with an example 12-character SHA
+        run: |
+          helm template llm-secguard charts/llm-secguard \
+            --namespace llm-secguard \
+            -f charts/llm-secguard/values.ci.yaml > rendered.yaml
+
+      - name: Assert hardened rendered resources
+        run: |
+          assert_present() {
+            grep -Eq "$1" rendered.yaml || {
+              echo "missing rendered assertion: $1" >&2
+              exit 1
+            }
+          }
+          assert_present 'image: "ghcr.io/deltmchey/llm-secguard:0123456789ab"'
+          assert_present 'kind: HorizontalPodAutoscaler'
+          assert_present 'kind: PodDisruptionBudget'
+          assert_present 'kind: NetworkPolicy'
+          assert_present 'runAsNonRoot: true'
+          assert_present 'runAsUser: 10001'
+          assert_present 'allowPrivilegeEscalation: false'
+          assert_present 'readOnlyRootFilesystem: true'
+          assert_present 'type: RuntimeDefault'
+          assert_present 'minAvailable: 1'
+          assert_present 'maxReplicas: 2'
+          assert_present 'port: 6379'
+          assert_present 'port: 5432'
+
+          if grep -Eq 'image:.*:latest([[:space:]]|$)|image:[[:space:]]*[^[:space:]]+:[[:space:]]*$' rendered.yaml; then
+            echo "latest or empty image tag found" >&2
+            exit 1
+          fi
+          if grep -Eq '^kind: Secret$|^stringData:' rendered.yaml; then
+            echo "the chart must not render Secret objects or literal stringData" >&2
+            exit 1
+          fi
+          for key in LLM_PRIMARY_API_KEY LLM_BACKUP_API_KEY GATEWAY_API_KEY REDIS_URL DATABASE_URL; do
+            assert_present "key: ${key}"
+          done
+
+      - name: Assert empty release tag fails closed
+        run: |
+          if helm template llm-secguard charts/llm-secguard \
+            --namespace llm-secguard \
+            -f charts/llm-secguard/values.release.yaml > empty-tag.log 2>&1; then
+            echo "empty release tag unexpectedly rendered" >&2
+            exit 1
+          fi
+          grep -q 'image.tag must be a non-empty immutable git SHA' empty-tag.log
+
+      - name: Assert latest override fails closed
+        run: |
+          if helm template llm-secguard charts/llm-secguard \
+            --namespace llm-secguard \
+            -f charts/llm-secguard/values.ci.yaml \
+            --set image.tag=latest > latest-tag.log 2>&1; then
+            echo "latest unexpectedly rendered" >&2
+            exit 1
+          fi
+          grep -q 'image.tag must be a non-empty immutable git SHA' latest-tag.log

@@ -1,0 +1,34 @@
+name: script
+
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - ".github/workflows/script.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/**"
+      - ".github/workflows/script.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Bash syntax
+        run: bash -n scripts/k3s-install.sh
+
+      - name: Run ShellCheck when available
+        run: |
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck scripts/k3s-install.sh
+          else
+            echo "::notice::ShellCheck is unavailable; bash -n still passed."
+          fi

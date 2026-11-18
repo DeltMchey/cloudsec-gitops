@@ -1,0 +1,79 @@
+# Offline, read-only Terraform gate. There is deliberately no apply/destroy job,
+# AWS account lookup, remote backend, or real AWS credential in this workflow.
+name: terraform
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: terraform
+    env:
+      TF_IN_AUTOMATION: "true"
+      # Non-secret placeholders satisfy the AWS provider's config parser while
+      # offline_plan=true and -refresh=false prevent account/API access.
+      AWS_ACCESS_KEY_ID: offline-plan-only
+      AWS_SECRET_ACCESS_KEY: offline-plan-only
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+          # TODO(pin-at-execution): set terraform_version to the reviewed CLI
+          # version together with the literal constraint in versions.tf.
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+
+      - name: Initialize without a backend
+        run: terraform init -backend=false -input=false
+
+      - name: Validate configuration
+        run: terraform validate
+
+      - name: Offline plan only
+        run: terraform plan -input=false -refresh=false -lock=false -out=tfplan -var=offline_plan=true -no-color
+
+      - name: Export text and JSON plans
+        run: |
+          terraform show -no-color tfplan > tfplan.txt
+          terraform show -json tfplan > tfplan.json
+
+      - name: Static cost estimate placeholder
+        run: |
+          {
+            echo "## W9 one-shot cost estimate (not a quote)"
+            echo
+            echo "Estimated EKS control-plane cost: **[X] USD**."
+            echo "Estimated EC2/EBS/network cost: **[X] USD**."
+            echo "Price source URL: **[to be filled during execution review]**."
+            echo "Price query date: **[to be filled during execution review]**."
+            echo
+            echo "No price is inferred from this plan. Confirm current regional prices before apply; no apply is authorized here."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraform-offline-plan
+          path: |
+            terraform/tfplan.txt
+            terraform/tfplan.json
+          if-no-files-found: error
+          retention-days: 14

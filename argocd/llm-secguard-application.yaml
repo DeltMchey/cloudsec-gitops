@@ -1,0 +1,34 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: llm-secguard
+  namespace: argocd
+spec:
+  project: default
+  source:
+    # TODO(confirm-at-remote-creation): repository owner/name must be checked
+    # against the actual GitHub remote before the first sync.
+    repoURL: https://github.com/DeltMchey/cloudsec-gitops.git
+    targetRevision: main
+    path: charts/llm-secguard
+    helm:
+      releaseName: llm-secguard
+      valueFiles:
+        - values.release.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: llm-secguard
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 3
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 2m
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+# No Secret value or inline credential is part of this GitOps desired state.
