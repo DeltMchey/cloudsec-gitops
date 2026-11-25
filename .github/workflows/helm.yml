@@ -24,7 +24,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: azure/setup-helm@v4
-        # TODO(pin-at-execution): pin the Helm CLI version for the execution run.
+        # Same CLI version as the W3 VM install (2026-11-25).
+        with:
+          version: v4.3.2
 
       - name: Lint with strict checks
         run: helm lint charts/llm-secguard --strict -f charts/llm-secguard/values.ci.yaml
@@ -70,10 +72,14 @@ jobs:
           done
 
       - name: Assert empty release tag fails closed
+        # The empty-tag property is asserted with an explicit override so this
+        # gate stays valid after the release values file is backfilled with the
+        # real published SHA (the chart itself still rejects empty/latest).
         run: |
           if helm template llm-secguard charts/llm-secguard \
             --namespace llm-secguard \
-            -f charts/llm-secguard/values.release.yaml > empty-tag.log 2>&1; then
+            -f charts/llm-secguard/values.release.yaml \
+            --set image.tag="" > empty-tag.log 2>&1; then
             echo "empty release tag unexpectedly rendered" >&2
             exit 1
           fi
