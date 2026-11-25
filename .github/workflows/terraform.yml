@@ -36,8 +36,8 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
-          # TODO(pin-at-execution): set terraform_version to the reviewed CLI
-          # version together with the literal constraint in versions.tf.
+          # Same CLI version as the literal constraint in versions.tf.
+          terraform_version: 1.17.2
 
       - name: Check formatting
         run: terraform fmt -check -recursive
