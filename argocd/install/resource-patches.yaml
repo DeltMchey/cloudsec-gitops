@@ -21,8 +21,9 @@ spec:
   replicas: 0
 ---
 # Memory envelopes for the four remaining core components.
+# argocd-application-controller is a StatefulSet since Argo CD v3.0.
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: argocd-application-controller
 spec:
