@@ -6,8 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    # TODO(confirm-at-remote-creation): repository owner/name must be checked
-    # against the actual GitHub remote before the first sync.
+    # Confirmed 2026-11-25: this is the actual GitHub remote (pushed and green).
     repoURL: https://github.com/DeltMchey/cloudsec-gitops.git
     targetRevision: main
     path: charts/llm-secguard

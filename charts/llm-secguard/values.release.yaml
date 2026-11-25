@@ -2,7 +2,9 @@
 # commit SHA; set that exact SHA here during the execution batch. Empty/latest
 # tags are rejected by the chart's render gate, never replaced with latest.
 image:
-  tag: ""
+  # Backfilled at execution 2026-11-25: the sha-tagged image published by CI
+  # (and reproduced locally on the VM) for llm-secguard@385d63a04fb6.
+  tag: "385d63a04fb6"
 
 existingSecret:
   name: llm-secguard-runtime
