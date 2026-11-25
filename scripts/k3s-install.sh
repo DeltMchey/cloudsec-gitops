@@ -2,6 +2,9 @@
 # Idempotent K3s server installation for the W3 Ubuntu VM.
 # Execute only as root on the intended VM. This script never stops, removes, or
 # recreates existing Docker data containers.
+# pinned at execution 2026-11-25: v1.37.2+k3s1 (stable channel,
+# resolved via update.k3s.io; CN mirror serves the same release as
+# v1.37.2-k3s1 and the installer normalizes '+' to '-' itself).
 set -Eeuo pipefail
 IFS=$'\n\t'
 
