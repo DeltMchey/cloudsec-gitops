@@ -11,17 +11,17 @@
 
 ## 1. 环境规格（Environment Profile）
 
-| 项目 | W2 单机基线（实测环境） | W4 K3s 集群（待回填） |
+| 项目 | W2 单机基线（实测环境） | K3s 集群（W3 落地，2026-11-25 回填） |
 | --- | --- | --- |
-| 硬件 | VMware Workstation VM，4 vCPU / 3875 Mi RAM + 1873 Mi swap | （待回填） |
-| 宿主 OS | Ubuntu 20.04 LTS（nijika@192.168.137.10） | （待回填） |
-| 网关形态 | uvicorn 单 worker，进程直跑（`.venv/bin/uvicorn app.main:app --port 8000`） | （待回填：Deployment 副本数 / 资源 limit） |
-| 上游后端 | MockChatBackend（进程内回显，零网络） | （待回填） |
-| Redis | Docker redis7（secguard-redis，127.0.0.1:6379，限流 Lua 真实在路径上） | （待回填） |
-| PostgreSQL | Docker postgres16（secguard-postgres，127.0.0.1:5432，审计真实写盘） | （待回填） |
-| 施压工具 | k6 `grafana/k6:2.3.0`（Docker，`--network host`，`--user uid:gid`） | （待回填） |
-| 施压机与被测机关系 | 同机（VM 内 localhost，环回零网络跳数） | （待回填） |
-| 代码版本 | llm-secguard @ `144897e`（守卫链路 + 合成数据生成器平台无关修复 + k6 pin） | （待回填） |
+| 硬件 | VMware Workstation VM，4 vCPU / 3875 Mi RAM + 1873 Mi swap | 同左（单节点复用同一 VM：4 vCPU / 3875 Mi + 1873 Mi swap，cgroup v2） |
+| 宿主 OS | Ubuntu 20.04 LTS（nijika@192.168.137.10） | 同左；K3s v1.37.2+k3s1 / containerd 2.3.7-k3s1（traefik、servicelb 关闭，CN registry 镜像） |
+| 网关形态 | uvicorn 单 worker，进程直跑（`.venv/bin/uvicorn app.main:app --port 8000`） | Deployment 1 副本（HPA 1–2 @ CPU70%）；非 root UID 10001、只读根文件系统；requests 100m/128Mi，limits 500m/384Mi；NodePort 30080 |
+| 上游后端 | MockChatBackend（进程内回显，零网络） | 同左（集群内镜像 `ghcr.io/deltmchey/llm-secguard:385d63a04fb6`，198 MB） |
+| Redis | Docker redis7（secguard-redis，127.0.0.1:6379，限流 Lua 真实在路径上） | 同一 Docker 实例，双绑定 127.0.0.1 + 192.168.137.10:6379（Pod 经私网地址直连，NetworkPolicy egress 显式放行） |
+| PostgreSQL | Docker postgres16（secguard-postgres，127.0.0.1:5432，审计真实写盘） | 同一 Docker 实例，双绑定 127.0.0.1 + 192.168.137.10:5432（同上） |
+| 施压工具 | k6 `grafana/k6:2.3.0`（Docker，`--network host`，`--user uid:gid`） | （待回填：W4 压测时从集群内 Job 或 VM 施压） |
+| 施压机与被测机关系 | 同机（VM 内 localhost，环回零网络跳数） | （待回填：W4 决定施压位置后补充跳数口径） |
+| 代码版本 | llm-secguard @ `144897e`（守卫链路 + 合成数据生成器平台无关修复 + k6 pin） | llm-secguard @ `385d63a`；cloudsec-gitops @ `328281b`；K3s v1.37.2+k3s1（stable 频道 2026-11-25 解析值）；Argo CD v3.6.3；helm v4.3.2；terraform CLI 1.17.2 / aws provider 6.74.0 |
 
 **单机局限声明**：施压与被测共享 4 vCPU，k6 与 uvicorn 争核，测得的 RPS 是
 "同机联合吞吐上限"，绝对值偏保守；但 **A vs D 的差值口径（守卫增量开销）在
@@ -189,11 +189,55 @@ anything now" 类英文越狱、医疗角色扮演越狱）是已登记的红队
 
 | 指标 | 值 |
 | --- | --- |
-| 集群规格 | （待回填） |
+| 集群规格 | （待回填：W3 已有单节点 K3s，见 §7；本节专用于 W4 压测矩阵口径） |
 | 网关副本 / 资源 | （待回填） |
 | k6 施压位置 | （待回填） |
 | p50 / p95 / p99 / RPS | （待回填） |
 | guard_latency | （待回填） |
+
+## 7. W3 基础设施实测数字（2026-11-25，K3s + GitOps 落地）
+
+> 口径：全部为单节点 VM 上的真实执行记录（非压测数字）；环境规格见 §1 K3s 列。
+> 内存护栏沿用 D-12：可用 <800 Mi 停止新增组件，<500 Mi 停止当前阶段——全程未触发。
+
+### 7.1 部署与同步时延
+
+| 事件 | 实测耗时 | 口径说明 |
+| --- | --- | --- |
+| K3s 安装 → 全组件健康 | ≈3 min | `scripts/k3s-install.sh` 二次执行（幂等跳过安装）：node Ready + CoreDNS + metrics-server + local-path 全部 Available；首次执行因 cgroup v1 被 v1.37 kubelet 硬拒（切 cgroup v2 后通过，见 7.4） |
+| helm install（手动 T05） | 23 s | `--wait`：Chart 渲染 → 镜像拉取（ghcr 经 CN 镜像）→ Pod Ready |
+| Argo CD 安装 → 全组件 Ready | ≈1 min | apply → 容器运行 ≈30 s（含 quay.io 镜像拉取）→ 四组件全部 Ready；实际占用 87 Mi（请求 352 Mi 起步，远低于 700 Mi 关注线） |
+| Git 提交推送 → Argo 首次 Synced+Healthy | 60 s | `kubectl apply -f application.yaml` 起，含 repo clone + helm render + 部署 |
+| Git 提交推送 → 副本数变更同步（2 副本） | 275 s | Argo 默认 3 min 轮询主导；selfHeal/prune 正常 |
+| git revert push → Argo 同步完成 | ≈305 s | 12:30:18Z push → 12:35:22Z Synced（3 min 轮询 + render/sync）；重建的 HPA 无 stabilization 历史包袱，同步后立即回收至 1 副本 |
+
+### 7.2 漂移恢复与回滚
+
+| 演示 | 实测耗时 | 机制归因 |
+| --- | --- | --- |
+| `kubectl scale --replicas=2`（漂移） → 回到 1 | 323 s | Chart 在 autoscaling 启用时**不渲染** `spec.replicas`，Argo apply 无法删除该字段，实际回收由 HPA 执行（默认 300 s scale-down stabilization + 轮询），Argo 全程 Synced 并标记漂移 |
+| git revert（values 副本数 2 → 自动扩缩恢复） → 回到 1 | ≈305 s | revert push → Argo 同步 ≈305 s；HPA 对象随 chart 重建（prune 语义），Deployment 交还 HPA 管理并立即回到 minReplicas=1 |
+
+### 7.3 内存基线（free -m available）
+
+| 时点 | 可用 (Mi) |
+| --- | --- |
+| K3s 安装前 | 3139 |
+| K3s 组件就绪后（干净态） | 2560 |
+| Argo CD 就绪后 | 1989 |
+| 网关部署后（T05 手动 helm，含重启验证） | 2488–2881（区间含重启前后） |
+| 全部就位终值（T11 复核） | 1899 |
+| 护栏 | 800（未触发） |
+
+### 7.4 环境适配记录（可复现性关键项）
+
+| 项 | 结论 |
+| --- | --- |
+| cgroup v2 | K3s v1.37 kubelet 拒绝 cgroup v1 主机；GRUB 追加 `systemd.unified_cgroup_hierarchy=1` 后重启解决。重建 VM 必须携带该参数 |
+| Pod → VM 数据实例连通 | docker 的 nat PREROUTING DNAT 先于 kube-router NetworkPolicy 求值，Pod 访问 192.168.137.10:6379/5432 被策略拒绝；已在 nat DOCKER 链顶部插入 `-s 10.42.0.0/16 -j RETURN`（systemd unit `k3s-docker-netpol-fix.service` 持久化），Pod 流量保持原始 dst 走 docker-proxy 用户态代理，策略按声明放行 |
+| NetworkPolicy 反向验证 | 未放行目标（k3s API 6443、外网 TCP/53）从 Pod 内均被拒（≈0.02–0.07 s REJECT）；无 NetworkPolicy 覆盖的对照 Pod 可连通同一 6443，证明拦截来自策略而非端口未监听 |
+| 镜像体积 | `ghcr.io/deltmchey/llm-secguard:385d63a04fb6` = 198 MB（多阶段构建，非 root） |
+| 冒烟证据 | Pod 内 Redis PING=PONG、PG 就绪；NodePort /healthz 200；/v1/chat/completions 200 且带 `x-ratelimit-remaining`（限流链路经 Pod→VM Redis 全通）；audit_logs 行数 +1 |
 
 ## 附：变更记录
 
@@ -201,3 +245,4 @@ anything now" 类英文越狱、医疗角色扮演越狱）是已登记的红队
 | --- | --- |
 | 2026-11-04 | 初版：W2 环境规格、负载口径、10 轮压测矩阵实测数字（A/D p50/p95/p99/RPS、guard_latency 直方图、内存曲线）、红队口径与 [N]% 占位定档 |
 | 2026-11-10 | 追加 §3.5：守卫补强后复测（llm-secguard c37bd6f，规则 18→20）——VU20 D 单轮 p95=10.24ms / RPS 46.35 无回归，guard_latency 仍 µs 级（input 0.0316ms / output 0.0357ms），守卫 400 份额 7.32%→8.65%，promptfoo 自编集 34/36→36/36 |
+| 2026-11-25 | 追加 §7：W3 基础设施实测（K3s v1.37.2+k3s1 / Argo CD v3.6.3 / helm v4.3.2 / terraform 1.17.2+aws 6.74.0）——K3s 健康 ≈3min、helm 23s、Argo Ready ≈1min(87Mi)、首同步 60s、selfHeal 323s、镜像 198MB、内存全程高于护栏；§1 K3s 列回填（cgroup v2 与 docker DNAT×netpol 两条环境适配记录入档） |
