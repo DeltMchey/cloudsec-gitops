@@ -6,12 +6,6 @@ image:
   # (and reproduced locally on the VM) for llm-secguard@385d63a04fb6.
   tag: "385d63a04fb6"
 
-# Benign rollback demo (reverted immediately after): render explicit replicas
-# so Argo's selfHeal/prune path can be observed end to end.
-replicaCount: 2
-autoscaling:
-  enabled: false
-
 existingSecret:
   name: llm-secguard-runtime
 
